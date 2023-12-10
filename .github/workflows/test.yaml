@@ -16,8 +16,15 @@ jobs:
         id: slack_release_notify
         uses: ./
         with:
-          webhook_url: ${{ secrets.WEBHOOK_URL }}
+          tag: 'v1.0'
+          channel: 'C0651SH3K16'
+          appName: 'cookme-releases'
+          jiraBaseUrl: 'https://your-jira-instance.atlassian.net'
+          jiraProjectKey: 'your-jira-project-key'
+          repoOwner: ${{ github.repository_owner }}
+          repoName: ${{ github.repository }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
 
       - name: Check outputs
         run: |
-          echo "Payload: ${{ steps.lack_release_notify.outputs.payload }}"
+          echo "Payload: ${{ steps.slack_release_notify.outputs.payload }}"
