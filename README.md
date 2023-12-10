@@ -22,7 +22,7 @@ To use this action in your workflow, add the following step:
 
 ```yaml
 - name: Slack Release BOT
-  uses: Gershon-A/GitHubReleaseSlackNotifier@v1.0.0
+  uses: Gershon-A/GitHubReleaseSlackNotifier@v1.0.1
   with:
     tag: ${{ github.ref }}
     channel: 'your-slack-channel'
