@@ -1,101 +1,129 @@
-name: Snyk Infrastructure as Code security
+name: Slack Release BOT
 author: Gershon Alvais
-description: Snyk Infrastructure as Code security scans and report to Snyk UI
+description: Slack about new GitHub releases. Streamline release alerts for your team seamlessly.
 inputs:
-  SNYK_TOKEN:
+  tag:
     required: true
-    type: 'string'
-    description: 'Snyk API token'
-  SNYK_ORG_ID:
+    type: string
+  channel:
     required: true
-    type: 'string'
-    description: 'Snyk organization ID'
-  SNYK_PROJECT_NAME:
-    required: false
-    type: 'string'
-    description: 'Snyk project name'
-  SNYK_PROJECT_ID:
-    required: false
-    type: 'string'
-    description: 'Snyk project ID'
-  SEVERITY_THRESHOLD:
-    required: false
-    type: 'string'
-    description: 'Severity threshold'
-  FILE:
-      required: false
-      type: 'string'
-      description: 'iaC file or directory to scan'
-      default: '*'
-  JSON_FILE_OUTPUT:
-      required: false
-      type: 'string'
-      description: 'Snyk JSON file output'
-      default: snyk.json
-  update_pr_with_scan_results:
-      required: false
-      type: 'string'
-      description: 'Update PR with scan results'
-      default: false
+    type: string
+  appName:
+    required: true
+    type: string
+  jiraBaseUrl:
+    description: Jira base url
+    required: true
+    type: string
+    default: "https://tricentis.atlassian.net"
+  jiraProjectKey:
+    description: Jira project key
+    required: true
+    type: string
+  repoOwner:
+    required: true
+    type: string
+  repoName:
+    required: true
+    type: string
+  webhook_url:
+    required: true
+    type: string
+    description: Slack webhook url
 
 runs:
-    using: "composite"
-    steps:
+  using: "composite"
+  steps:
+    - name: Get Release
+      id: get-release
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const tag = '${{ inputs.tag }}';
+          const release = await github.rest.repos.getReleaseByTag({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            tag: tag
+          });
+          if (!release || !release.data.body) {
+              console.error('Invalid release');
+              return;
+          }
+          core.setOutput('release', JSON.stringify(release));
 
-      - name: Run Snyk to check Kubernetes manifest file for issues
-        id: snyk
-        uses: snyk/actions/iac@master
-        env:
-          SNYK_TOKEN:   ${{ inputs.SNYK_TOKEN }}
-        with:
-          file: ${{ inputs.FILE }}
-          args: --severity-threshold=${{ inputs.SEVERITY_THRESHOLD }} --report --org=${{ inputs.SNYK_ORG_ID }} --json-file-output=${{ inputs.JSON_FILE_OUTPUT}}
+    - name: Get Release and Format message
+      id: format
+      uses: actions/github-script@v6
+      with:
+        release: ${{ steps.get-release.outputs.release }}
+        script: |
+          const release = JSON.parse(core.getInput('release'));
 
-      - name: Post results to PR
-        if: inputs.update_pr_with_scan_results == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            // Read the results from snyk.json
-            const results = JSON.parse(fs.readFileSync('snyk.json', 'utf8'));
-            // Create a summary
-            const summary = results.map(result => ({
-              targetFile: result.targetFile,
-              ok: result.ok ? "✅" : "❌"
-            }));
-            // Create a Markdown table
-            let table = "| Target File | OK |\n| --- | --- |\n";
-            summary.forEach(item => {
-              table += `| ${item.targetFile} | ${item.ok} |\n`;
-            });
-            // Get the issue or pull request number
-            const number = (context.issue && context.issue.number) || (context.payload.pull_request && context.payload.pull_request.number);
-            if (number) {
-              // Get all comments of the issue or pull request
-              const comments = await github.rest.issues.listComments({
-                issue_number: number,
-                owner: context.repo.owner,
-                repo: context.repo.repo
-              });
-              // Find the existing comment
-              const existingComment = comments.data.find(comment => comment.user.login === 'github-actions[bot]');
-              // If the existing comment is found, delete it
-              if (existingComment) {
-                await github.rest.issues.deleteComment({
-                  comment_id: existingComment.id,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo
-                });
-              }
-              // Create a new comment
-              await github.rest.issues.createComment({
-                issue_number: number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: table
-              });
-            } else {
-              console.log('Issue or pull request number is undefined');
-            }
-          debug: false
+          // Helper functions
+          const getJiraLink = (ticket) => `<${jiraBaseUrl}/browse/${ticket}|${ticket}>`;
+
+          const getPrLink = (prNumber) => `<https://github.com/${repoOwner}/${repoName}/pull/${prNumber}|#${prNumber}>`;
+
+          // Cache reusable values
+          const channel = '${{ inputs.channel }}';
+          const appName = '${{ inputs.appName }}';
+          const jiraBaseUrl = '${{ inputs.jiraBaseUrl }}';
+          const repoOwner = '${{ inputs.repoOwner }}';
+          const repoName = '${{ inputs.repoName }}';
+          const jiraProjectKey = '${{ inputs.jiraProjectKey }}';
+
+          let body = release.data.body;
+
+          // Replace headers
+          body = body.replace(/## (.+)/g, '*$1*');
+
+          // Remove extra HTML
+          body = body.replace(/<[^>]*>/gm, '');
+
+          // Remove extra lines
+          body = body.replace(/\n{2,}/g, '\n');
+
+          // Replace Jira tickets with links
+          const jiraRegex = new RegExp(`(${jiraProjectKey}-\\d+)`, 'g');
+          body = body.replace(jiraRegex, (match) => {
+            return getJiraLink(match);
+          });
+
+          // Replace PR numbers with links
+          const prNumberRegex = /#(\d+)/g;
+          body = body.replace(prNumberRegex, (match, prNumber) => {
+            return getPrLink(prNumber);
+          });
+
+          // Handle empty Uncategorized
+          const uncategorizedSection = body.match(/Uncategorized\r\n([\s\S]*?)(?=\*\w|$)/);
+          if (uncategorizedSection && uncategorizedSection[1].trim() === '') {
+            body = body.replace(/Uncategorized\r\n([\s\S]*?)(?=\*\w|$)/, '');
+          }
+
+          // Format PR matches
+          const prRegex = /- \[(${jiraProjectKey}-\d+)\]\(https:\/\/github\.com\/.+\/pull\/(\d+)\) (.+):\s(.+)/g;
+          let prMatch;
+          while ((prMatch = prRegex.exec(body)) !== null) {
+            const prNumber = prMatch[2];
+            const prLink = getPrLink(prNumber);
+            const jiraTicket = prMatch[1];
+            const jiraLink = getJiraLink(jiraTicket);
+            const newFormat = `${jiraLink}: ${prMatch[3]} ${prMatch[4]} ${prLink}`;
+            body = body.replace(prMatch[0], newFormat);
+          }
+
+          // Construct payload
+          const payload = {
+            channel,
+            text: `✅ New *${appName}* Release <${release.data.html_url}|${release.data.tag_name}>\n${body}`,
+          };
+
+          core.setOutput('payload', JSON.stringify(payload));
+          console.log("payload output:", payload);
+
+    - name: Send Release notify to Slack
+      id: slack_notification
+      shell: bash
+      run: |
+        curl -H "Content-type: application/json" --data '${{ steps.format.outputs.payload }}' ${{ inputs.webhook_url }}
