@@ -1,0 +1,23 @@
+name: Test Action
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run action
+        id: slack_release_notify
+        uses: ./
+        with:
+          webhook_url: ${{ secrets.WEBHOOK_URL }}
+
+      - name: Check outputs
+        run: |
+          echo "Payload: ${{ steps.lack_release_notify.outputs.payload }}"
