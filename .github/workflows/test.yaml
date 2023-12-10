@@ -20,7 +20,7 @@ jobs:
           channel: 'C0651SH3K16'
           appName: 'cookme-releases'
           jiraBaseUrl: 'https://your-jira-instance.atlassian.net'
-          jiraProjectKey: 'your-jira-project-key'
+          jiraProjectKey: 'TICKET'
           repoOwner: ${{ github.repository_owner }}
           repoName: ${{ github.repository }}
           webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
